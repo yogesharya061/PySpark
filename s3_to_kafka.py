@@ -1,19 +1,19 @@
+"""
+    This function is responsible for reading data from s3 and push the data to Kafka topic in JSON format.
+    It will check for NULL value before sending data and make it "". otherwise for NULL values, spark will not create column at all.
+    params:
+        s3_url: s3 file path location from where files needs to be read and processed. Here we used Parquet file example.
+        kafka_server: Details of kafka host and port.
+        key: Key column for the data which acts as a unique key for Kafka topic.
+        topic: Name of kafka topic in which data needs to push.
+        drop_cols: Optional parameter. List of column names which needs to be dropped before sending.
+    return:
+        Data pushed to Kafka topic.
+"""
 from pyspark.sql import SparkSession
 import sys
 
 def send_s3_to_kafka(spark, params):
-    """
-        This function is responsible for reading data from s3 and push the data to Kafka topic in JSON format.
-        It will check for NULL value before sending data and make it "". otherwise for NULL values, spark will not create column at all.
-        params:
-            s3_url: s3 file path location from where files needs to be read and processed.
-            kafka_server: Details of kafka host and port.
-            key: Key column for the data which acts as a unique key for Kafka topic.
-            topic: Name of kafka topic in which data needs to push.
-            drop_cols: Optional parameter. List of column names which needs to be dropped before sending.
-        return:
-            Data pushed to Kafka topic.
-    """
     from pyspark.sql.functions import to_json, struct, col
     s3_dest = params['s3_url']
     server = params['kafka_server']
@@ -25,11 +25,11 @@ def send_s3_to_kafka(spark, params):
         drop_col = params['drop_cols']
         src_df = src_df.drop(*drop_col)
     except KeyError as e:
-        logger.info(f"No columns need to be dropped before data send: {e}")
+        print(f"No columns need to be dropped before data send: {e}")
 
     src_df.createOrReplaceTempView('SRC_DF')
 
-    logger.info(f"*** Format the updates for Kafka from {s3_dest}")
+    print(f"*** Format the updates for Kafka from {s3_dest}")
     column_dtl = src_df.dtypes
 
     sqlcmd = "select "
@@ -41,7 +41,7 @@ def send_s3_to_kafka(spark, params):
             sqlcmd += "nvl(" + column[0] + ", \"\") as " + column[0] + ","
 
     cmd = sqlcmd[:-1] + " from SRC_DF"
-    logger.info(f"SQL Command: {cmd}")
+    print(f"SQL Command: {cmd}")
     df = spark.sql("{}".format(cmd))
 
     df_json = df.select([col(key_column).alias('key'),
@@ -59,13 +59,15 @@ def main():
         "topic": sys.argv[4],
     }
 
+    # Creating Spark Session
     spark = SparkSession.builder \
-      .master("local[1]") \
-      .appName("s3_to_kafka") \
-      .getOrCreate() 
-    
+        .master("local[*]") \
+        .appName("s3_to_kafka") \
+        .getOrCreate()
+
     send_s3_to_kafka(spark, params)
-  
+    print("*** Spark job completed successfully!")
+
     # Stopping spark session
     spark.stop()
     return None
@@ -75,4 +77,5 @@ def main():
 if __name__ == '__main__':
     main()
 
-# spark-submit --master local[*] --packages 'org.apache.spark:spark-sql-kafka-0-10_2.12:3.2.0' s3_to_kafka.py "s3a://my_bucket/test/" "kafka_host:kafka_port" "test-topic" "id"
+# spark-submit --master local[*] --packages 'org.apache.spark:spark-sql-kafka-0-10_2.12:3.2.0' s3_to_kafka.py
+# "s3a://my_bucket/test/" "kafka_host:kafka_port" "test-topic" "id"
